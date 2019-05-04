@@ -225,18 +225,38 @@ grep -lZ {bindist_dir} bin/* | xargs -0 --verbose \\
         ))
         _execute_fail_loudly(ctx, ["./patch_bins"])
 
+    # Generate BUILD file entries describing each prebuilt package.
+    pkgdb_to_bzl = ctx.path(Label("@io_tweag_rules_haskell//haskell:private/pkgdb_to_bzl.py"))
+    result = ctx.execute([
+        pkgdb_to_bzl,
+        ctx.attr.name,
+        "lib/ghc-{}".format(ctx.attr.version),
+    ])
+    if result.return_code:
+        fail("Error executing pkgdb_to_bzl.py: {stderr}".format(stderr = result.stderr))
+    toolchain_libraries = result.stdout
+
     ctx.template(
         "BUILD",
         executable = False,
         content = """
 load(
     "@io_tweag_rules_haskell//haskell:haskell.bzl",
+    "haskell_import",
     "haskell_toolchain",
+)
+
+{toolchain_libraries}
+
+filegroup(
+    name = "bin",
+    srcs = glob(["bin/*"]),
 )
 
 haskell_toolchain(
     name = "toolchain",
     tools = [":bin"],
+    libraries = toolchain_libraries,
     version = "{version}",
     compiler_flags = {compiler_flags},
     haddock_flags = {haddock_flags},
@@ -244,6 +264,7 @@ haskell_toolchain(
     visibility = ["//visibility:public"],
 )
         """.format(
+            toolchain_libraries = toolchain_libraries,
             version = ctx.attr.version,
             compiler_flags = ctx.attr.compiler_flags,
             haddock_flags = ctx.attr.haddock_flags,
